@@ -1,0 +1,1 @@
+from .relational_gnn import RelationalGNN
