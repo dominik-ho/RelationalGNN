@@ -196,16 +196,21 @@ class ValueFunctionRGNN(RelationalGNN):
             dynamic_num_layers: bool,
             embedding_size: int,
             activation: str,
-            aggregation: str
+            aggregation: str,
+            linear_readout: bool
     ):
         super().__init__(predicate_arity_dict, object_type_name, num_layers, dynamic_num_layers, embedding_size,
                          activation, aggregation)
         self.state_agg: torch_geometric.nn.Aggregation = torch_geometric.nn.SumAggregation()
-        self.readout_mlp = torch.nn.Sequential(
-            torch.nn.Linear(self.embedding_size, 2 * self.embedding_size),
-            torch.nn.ReLU(), # self.activation,
-            torch.nn.Linear(2 * self.embedding_size, 1),
-        )
+        self.linear_readout = linear_readout
+        if self.linear_readout:
+            self.readout_mlp = torch.nn.Linear(self.embedding_size, 1)
+        else:
+            self.readout_mlp = torch.nn.Sequential(
+                torch.nn.Linear(self.embedding_size, 2 * self.embedding_size),
+                torch.nn.ReLU(), # self.readout_activation,
+                torch.nn.Linear(2 * self.embedding_size, 1),
+            )
 
     def forward(self, x_dict: dict[str, Tensor], edge_index_dict: dict[EdgeType, Tensor], batch_assignment: Tensor | None, *args: Any, **kwargs: Any) -> tuple[Tensor, Tensor]:
         if batch_assignment is None:
