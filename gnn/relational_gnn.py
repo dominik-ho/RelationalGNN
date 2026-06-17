@@ -188,7 +188,7 @@ class RelationalGNN(Module):
 
         return x_dict[self.object_type_name]
 
-class ValueFunctionRGNN(RelationalGNN):
+class MLPReadoutRGNN(RelationalGNN):
     def __init__(
             self,
             predicate_arity_dict: dict[str, int],
@@ -197,20 +197,15 @@ class ValueFunctionRGNN(RelationalGNN):
             embedding_size: int,
             activation: str,
             aggregation: str,
-            linear_readout: bool
     ):
         super().__init__(predicate_arity_dict, object_type_name, num_layers, dynamic_num_layers, embedding_size,
                          activation, aggregation)
         self.state_agg: torch_geometric.nn.Aggregation = torch_geometric.nn.SumAggregation()
-        self.linear_readout = linear_readout
-        if self.linear_readout:
-            self.readout_mlp = torch.nn.Linear(self.embedding_size, 1)
-        else:
-            self.readout_mlp = torch.nn.Sequential(
-                torch.nn.Linear(self.embedding_size, 2 * self.embedding_size),
-                torch.nn.ReLU(), # self.readout_activation,
-                torch.nn.Linear(2 * self.embedding_size, 1),
-            )
+        self.readout_mlp = torch.nn.Sequential(
+            torch.nn.Linear(self.embedding_size, 2 * self.embedding_size),
+            torch.nn.ReLU(), # self.readout_activation,
+            torch.nn.Linear(2 * self.embedding_size, 1),
+        )
 
     def forward(self, x_dict: dict[str, Tensor], edge_index_dict: dict[EdgeType, Tensor], batch_assignment: Tensor | None, *args: Any, **kwargs: Any) -> tuple[Tensor, Tensor]:
         if batch_assignment is None:
@@ -220,3 +215,30 @@ class ValueFunctionRGNN(RelationalGNN):
         state_embeddings = self.state_agg(object_embeddings, batch_assignment)
         return self.readout_mlp(state_embeddings)
 
+class FeatureAlignedReadoutRGNN(RelationalGNN):
+    def __init__(
+            self,
+            predicate_arity_dict: dict[str, int],
+            object_type_name: str, num_layers: int | None,
+            dynamic_num_layers: bool,
+            embedding_size: int,
+            activation: str,
+            aggregation: str,
+    ):
+        super().__init__(predicate_arity_dict, object_type_name, num_layers, dynamic_num_layers, embedding_size,
+                         activation, aggregation)
+        self.state_agg_sum: torch_geometric.nn.Aggregation = torch_geometric.nn.SumAggregation()
+        self.state_agg_max: torch_geometric.nn.Aggregation = torch_geometric.nn.MaxAggregation()
+        self.readout_lin = torch.nn.Linear(2 * self.embedding_size, 1)
+
+    def forward(self, x_dict: dict[str, Tensor], edge_index_dict: dict[EdgeType, Tensor], batch_assignment: Tensor | None, *args: Any, **kwargs: Any) -> tuple[Tensor, Tensor]:
+        if batch_assignment is None:
+            batch_assignment = torch.zeros(x_dict[self.object_type_name].size(0), dtype=torch.long)
+        object_embeddings = super().forward(x_dict, edge_index_dict, batch_assignment, *args, **kwargs)
+        # statewise_object_embeddings = torch_geometric.utils.unbatch(object_embeddings, batch_assignment)
+        state_embeddings_sum = self.state_agg_sum(object_embeddings, batch_assignment)
+        state_embeddings_max = self.state_agg_max(object_embeddings, batch_assignment)
+        state_embeddings = torch.hstack(
+            (state_embeddings_sum, state_embeddings_max)
+        )
+        return self.readout_lin(state_embeddings)
