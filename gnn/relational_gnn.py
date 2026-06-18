@@ -5,11 +5,12 @@ import itertools
 import torch
 import torch_geometric
 from torch import Tensor
-from torch.nn import Module
+from torch.nn import Module, Sigmoid, Identity
 from torch_geometric.typing import EdgeType
 
 import utils
 from .object_to_atom_mp import ObjectToAtomMP
+from .smooth_round import SmoothRound
 
 
 class RelationalGNN(Module):
@@ -22,6 +23,7 @@ class RelationalGNN(Module):
             embedding_size: int,
             activation: str,
             aggregation: str,
+            manipulate_embeddings: None | str | tuple[str, Any]
     ):
         super().__init__()
         print("Initializing RelationalGNN...")
@@ -39,6 +41,8 @@ class RelationalGNN(Module):
         self.embedding_size = embedding_size
         self.activation = activation
         self.aggregation = aggregation
+
+        self.embedding_manipulator = RelationalGNN.match_embedding_manipulator(manipulate_embeddings)
 
         assert self.object_type_name not in self.predicate_arity_dict, f"<<{self.object_type_name}>> used for both predicate name and object type"
         for pred, ar in predicate_arity_dict.items():
@@ -79,6 +83,18 @@ class RelationalGNN(Module):
         #     for pred, ar in predicate_arity_dict.items()
         #     for pos in range(ar)
         # }
+
+    @staticmethod
+    def match_embedding_manipulator(manipulate_embeddings: None | str | tuple[str, Any]) -> Module:
+        match manipulate_embeddings:
+            case None:
+                return Identity()
+            case "sigmoid":
+                return Sigmoid()
+            case ("smooth_round", k):
+                return SmoothRound(k)
+            case _:
+                raise ValueError(f"Unknown manipulator {manipulate_embeddings}")
 
     @cached_property
     def objects_to_atoms_edge_types(self) -> list[EdgeType]:
@@ -138,8 +154,7 @@ class RelationalGNN(Module):
         else:
             x_dict[self.object_type_name] = self.update_mlp(stacked_for_update)
 
-        if self.sigmoid_embeddings:
-            x_dict[self.object_type_name].sigmoid_()
+        x_dict[self.object_type_name] = self.embedding_manipulator(x_dict[self.object_type_name])
 
         # return x_dict[self.object_type_name]
 
