@@ -4,6 +4,23 @@ import torch
 from torch import Tensor
 from torch.nn import Module
 
+def smooth_round(input: Tensor, k: int, base_range=None) -> Tensor:
+    if base_range is None:
+        base_range = torch.arange(-2, 3)
+    _k_half = k * .5
+
+    orig_shape = input.shape
+    input = input.view(-1)
+
+    floored = input.floor()
+    frac = input - floored
+
+    k_frac_plus_n = (frac[:, None] + base_range) * k
+    floored_minus_n = floored[:, None] - base_range
+    zwerg = torch.sigmoid(k_frac_plus_n + _k_half) - torch.sigmoid(k_frac_plus_n - _k_half)
+    zwerg = (floored_minus_n * zwerg).sum(dim=-1)
+    return zwerg.view(*orig_shape)
+
 class SmoothRound(Module):
     __constants__ = ["k", "_k_half", "base_range"]
 
@@ -19,13 +36,7 @@ class SmoothRound(Module):
         """
         Runs the forward pass.
         """
-        floored = input.floor()
-        frac = input - floored
-
-        k_frac_plus_n = (frac[:, None] + self.base_range) * self.k
-        floored_minus_n = floored[:, None] - self.base_range
-        zwerg = torch.sigmoid(k_frac_plus_n + self._k_half) - torch.sigmoid(k_frac_plus_n - self._k_half)
-        return (floored_minus_n * zwerg).sum(dim=-1)
+        return smooth_round(input, self.k, self.base_range)
 
     def extra_repr(self) -> str:
         """
