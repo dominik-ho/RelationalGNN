@@ -175,8 +175,8 @@ class GraphEncoder:
             edge_type: (list(), list())
             for edge_type in self.edge_types
         }
-        for edge, data in graph.edges.items():
-            src, dst, pos = edge
+        for src, dst, pos in graph.edges(data="pos"):
+            # src, dst, pos = edge   #todo extract pos
             spos = str(pos)
             if isinstance(src, Object):
                 dst: GroundAtom | GroundLiteral
