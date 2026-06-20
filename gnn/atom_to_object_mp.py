@@ -1,29 +1,29 @@
-from typing import Any
+from typing import Any, Optional
 
 import torch
 from torch import Tensor
-from torch_geometric.nn import MessagePassing
+from torch_geometric.nn import MessagePassing, Aggregation
 from torch_geometric.typing import Adj
 
 
-class ObjectToAtomMP(MessagePassing):
+class AtomToObjectMP(MessagePassing):
     def __init__(
             self,
-            embedding_size: int,
+            embedding_size: int
     ):
         super().__init__(
-            aggr="sum"  # aggr should not matter, as exactly 1 message per pos will be received by an atom node
+            aggr=None
         )
         self.embedding_size = embedding_size
 
-    def forward(self, x: torch.Tensor, edge_index: torch.Tensor, num_atoms: int, **kwargs: Any) -> Any:  # dst_x: torch.Tensor
+    def forward(self, x: torch.Tensor, edge_index: torch.Tensor, pos: int, num_objects: int, **kwargs: Any) -> Any:  # dst_x: torch.Tensor
         r"""Runs the forward pass of the module."""
         n = x.shape[0]
-        m = num_atoms
-        out = self.propagate(edge_index, x=x, size=(n, m), **kwargs)
+        m = num_objects
+        out = self.propagate(edge_index, x=x, size=(n, m), pos=pos, **kwargs)
         return out
 
-    def message(self, x_j: Tensor) -> Tensor:
+    def message(self, x_j: Tensor, pos: int) -> Tensor:
         r"""Constructs messages from node :math:`j` to node :math:`i`
         in analogy to :math:`\phi_{\mathbf{\Theta}}` for each edge in
         :obj:`edge_index`.
@@ -33,7 +33,9 @@ class ObjectToAtomMP(MessagePassing):
         respective nodes :math:`i` and :math:`j` by appending :obj:`_i` or
         :obj:`_j` to the variable name, *.e.g.* :obj:`x_i` and :obj:`x_j`.
         """
-        return x_j
+        # if we want the message to be 𝐱^(𝑖)_𝑜_𝑗 + (𝐦_𝑞)_𝑗, would need to add x_i to the result
+        p = pos * self.embedding_size
+        return x_j[:, p:p + self.embedding_size]
 
     def update(self, inputs: Tensor) -> Tensor:
         r"""Updates node embeddings in analogy to
@@ -45,8 +47,11 @@ class ObjectToAtomMP(MessagePassing):
         print(f"Input has shape {inputs.shape}. Correct? Should be [{self.embedding_size}]")
         return inputs
 
-    def aggregate(self, inputs: Tensor, index: Tensor,
-        ptr: Tensor | None = None,
-        dim_size: int | None = None,) -> Tensor:
-        print("Inputs to agg: ", inputs)
-        return super().aggregate(inputs, index, ptr, dim_size)
+    # can we really skip aggregation? Wouldn't this result in tensors of inhomogeneous site?
+    def aggregate(  # dont do anything
+        self,
+        inputs: Tensor,
+        *args,
+        **kwargs
+    ) -> Tensor:
+        return inputs.view(-1, self.embedding_size)  # todo does this stack them correctly?
